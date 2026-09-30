@@ -1,0 +1,19 @@
+# Database binary files (chỉ bỏ qua file .db nhị phân)
+database/*.db
+database/*.sqlite3
+
+# Node / React
+frontend/node_modules/
+frontend/dist/
+*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+
+# Environment
+.env
+
