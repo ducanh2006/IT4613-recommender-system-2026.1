@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import sys
+import bcrypt
 
 # Ensure UTF-8 output on Windows console
 if sys.platform == "win32":
@@ -12,6 +13,10 @@ if sys.platform == "win32":
 DB_DIR = os.path.dirname(os.path.abspath(__file__))
 SQL_FILE = os.path.join(DB_DIR, "database.sql")
 DB_FILE = os.path.join(DB_DIR, "app.db")
+
+def hash_password(raw_password):
+    """Băm mật khẩu bằng bcrypt để khớp với API đăng nhập."""
+    return bcrypt.hashpw(raw_password.encode(), bcrypt.gensalt()).decode()
 
 def init_database():
     print(f"[*] Đang khởi tạo CSDL tại: {DB_FILE}")
@@ -34,14 +39,24 @@ def init_database():
     ]
     cursor.executemany("INSERT OR IGNORE INTO genres (id, name) VALUES (?, ?);", genres)
 
-    # 2. Người dùng mẫu (hỗ trợ demo chuyển đổi nhanh)
+    # 2. Người dùng mẫu (mật khẩu băm bcrypt, dùng để đăng nhập demo)
+    demo_password = "123456"
     users = [
-        (1, "alice", "123456", "Alice Nguyen (Mê Hành Động/Marvel)", "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150"),
-        (2, "bob", "123456", "Bob Tran (Mê Hoạt Hình/Anime)", "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150"),
-        (3, "dave", "123456", "Dave Pham (Mê Viễn Tưởng/Không Gian)", "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150"),
-        (4, "charlie", "123456", "Charlie Le (User mới - Demo Cold Start)", "https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=150")
+        (1, "alice", hash_password(demo_password), "Alice Nguyen (Mê Hành Động/Marvel)", "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150"),
+        (2, "bob", hash_password(demo_password), "Bob Tran (Mê Hoạt Hình/Anime)", "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150"),
+        (3, "dave", hash_password(demo_password), "Dave Pham (Mê Viễn Tưởng/Không Gian)", "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150"),
+        (4, "charlie", hash_password(demo_password), "Charlie Le (User mới - Demo Cold Start)", "https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=150")
     ]
     cursor.executemany("INSERT OR IGNORE INTO users (id, username, password, full_name, avatar_url) VALUES (?, ?, ?, ?, ?);", users)
+
+    # Nâng cấp mật khẩu plain text còn sót trong app.db sang hash bcrypt
+    hashed_legacy = 0
+    for user_id, stored_password in cursor.execute("SELECT id, password FROM users;").fetchall():
+        if not stored_password.startswith("$2"):
+            cursor.execute("UPDATE users SET password = ? WHERE id = ?;", (hash_password(stored_password), user_id))
+            hashed_legacy += 1
+    if hashed_legacy:
+        print(f"[*] Đã băm lại {hashed_legacy} mật khẩu plain text cũ.")
 
     # 3. Danh sách phim (Dữ liệu chuẩn nét, poster và trailer youtube thật)
     movies = [

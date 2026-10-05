@@ -2,9 +2,7 @@ import React from "react";
 
 export default function Navbar({
   currentUser,
-  usersList,
-  onSelectUser,
-  onOpenAuth,
+  onLogout,
   searchQuery,
   onSearch,
 }) {
@@ -25,32 +23,18 @@ export default function Navbar({
           onChange={(e) => onSearch(e.target.value)}
         />
 
-        {/* Chuyển nhanh tài khoản trực tiếp ngay trên Navbar */}
-        <select
-          className="user-select"
-          value={currentUser ? currentUser.id : ""}
-          onChange={(e) => {
-            const val = e.target.value;
-            if (val === "") {
-              onSelectUser(null);
-            } else {
-              const u = usersList.find((item) => item.id === parseInt(val));
-              if (u) onSelectUser(u);
-            }
-          }}
-          title="Chọn người dùng để kiểm thử gợi ý"
-        >
-          <option value="">👤 Khách (Chưa đăng nhập)</option>
-          {usersList.map((u) => (
-            <option key={u.id} value={u.id}>
-              👤 {u.full_name || u.username}
-            </option>
-          ))}
-        </select>
+        {/* Thông tin tài khoản đang đăng nhập */}
+        <div className="user-chip" title={currentUser.full_name || currentUser.username}>
+          <img
+            className="user-avatar"
+            src={currentUser.avatar_url}
+            alt={currentUser.username}
+          />
+          <span className="user-name">{currentUser.full_name || currentUser.username}</span>
+        </div>
 
-        {/* Nút Đăng nhập / Đăng ký thủ công */}
-        <button className="btn-auth" onClick={onOpenAuth}>
-          {currentUser ? "Tài Khoản" : "Đăng Nhập"}
+        <button className="btn-auth btn-logout" onClick={onLogout}>
+          Đăng Xuất
         </button>
       </div>
     </header>

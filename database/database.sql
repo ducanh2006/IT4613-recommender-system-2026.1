@@ -1,7 +1,7 @@
 -- Database Schema for Movie Recommender System (Netflix Style)
 -- Course: IT4613 - Recommender Systems
 
--- 1. Bảng Người dùng (Hỗ trợ Đăng nhập / Đăng ký đơn giản & Demo chuyển đổi user)
+-- 1. Bảng Người dùng (Hỗ trợ Đăng nhập / Đăng ký đơn giản, mật khẩu băm bcrypt)
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,

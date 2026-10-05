@@ -2,10 +2,11 @@ import React, { useState, useEffect } from "react";
 import Navbar from "./components/Navbar";
 import MovieRow from "./components/MovieRow";
 import VideoModal from "./components/VideoModal";
-import AuthModal from "./components/AuthModal";
+import LoginPage from "./components/LoginPage";
 import { api } from "./services/api";
 
 export default function App() {
+  // Phiên đăng nhập được khôi phục từ localStorage
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem("recsys_user");
@@ -15,7 +16,6 @@ export default function App() {
     }
   });
 
-  const [usersList, setUsersList] = useState([]);
   const [trendingMovies, setTrendingMovies] = useState([]);
   const [personalizedMovies, setPersonalizedMovies] = useState([]);
   const [actionMovies, setActionMovies] = useState([]);
@@ -23,30 +23,23 @@ export default function App() {
   const [scifiMovies, setScifiMovies] = useState([]);
 
   const [selectedMovie, setSelectedMovie] = useState(null);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
 
-  // Tải danh sách user để chọn nhanh
-  useEffect(() => {
-    api.getUsers()
-      .then((users) => {
-        setUsersList(users);
-        if (!currentUser && users.length > 0) {
-          setCurrentUser(users[0]);
-        }
-      })
-      .catch((err) => console.error(err));
-  }, []);
-
-  // Đổi user
-  const handleSelectUser = (user) => {
+  // Đăng nhập thành công: lưu phiên để lần sau không phải nhập lại
+  const handleLoginSuccess = (user) => {
     setCurrentUser(user);
-    if (user) {
-      localStorage.setItem("recsys_user", JSON.stringify(user));
-    } else {
-      localStorage.removeItem("recsys_user");
-    }
+    localStorage.setItem("recsys_user", JSON.stringify(user));
+  };
+
+  // Đăng xuất: xóa phiên và mọi dữ liệu gắn với user cũ
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem("recsys_user");
+    setPersonalizedMovies([]);
+    setSearchQuery("");
+    setSearchResults([]);
+    setSelectedMovie(null);
   };
 
   // Tải các hàng phim
@@ -78,21 +71,23 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!currentUser) return;
     loadMovies();
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
-    loadPersonalized(currentUser?.id);
+    if (!currentUser) return;
+    loadPersonalized(currentUser.id);
   }, [currentUser]);
 
   // Tìm kiếm phim
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    if (!currentUser || !searchQuery.trim()) {
       setSearchResults([]);
       return;
     }
     const timer = setTimeout(() => {
-      api.searchMovies(searchQuery, currentUser?.id)
+      api.searchMovies(searchQuery, currentUser.id)
         .then((res) => setSearchResults(res))
         .catch((err) => console.error(err));
     }, 250);
@@ -106,14 +101,17 @@ export default function App() {
     }
   };
 
+  // Chưa đăng nhập thì chỉ hiển thị trang đăng nhập
+  if (!currentUser) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div>
-      {/* 1. Thanh điều hướng tối giản */}
+      {/* 1. Thanh điều hướng */}
       <Navbar
         currentUser={currentUser}
-        usersList={usersList}
-        onSelectUser={handleSelectUser}
-        onOpenAuth={() => setAuthModalOpen(true)}
+        onLogout={handleLogout}
         searchQuery={searchQuery}
         onSearch={setSearchQuery}
       />
@@ -144,7 +142,7 @@ export default function App() {
           <>
             {/* HÀNG 1: GỢI Ý CÁ NHÂN HÓA */}
             <MovieRow
-              title={currentUser ? `Gợi ý dành riêng cho bạn (${currentUser.username})` : "Gợi ý cho bạn"}
+              title={`Gợi ý dành riêng cho bạn (${currentUser.username})`}
               movies={personalizedMovies}
               onSelectMovie={(m) => setSelectedMovie(m)}
             />
@@ -188,14 +186,6 @@ export default function App() {
           onClose={() => setSelectedMovie(null)}
           onRateSuccess={handleRateSuccess}
           onSelectMovie={(m) => setSelectedMovie(m)}
-        />
-      )}
-
-      {/* 4. Modal Đăng nhập / Đăng ký */}
-      {authModalOpen && (
-        <AuthModal
-          onClose={() => setAuthModalOpen(false)}
-          onAuthSuccess={(u) => handleSelectUser(u)}
         />
       )}
     </div>

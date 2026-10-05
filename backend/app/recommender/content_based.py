@@ -10,7 +10,13 @@ class ContentBasedRecommender(BaseRecommender):
     Tính toán độ tương đồng Cosine Similarity giữa các phim dựa trên vector đặc trưng Thể loại (Genres).
     Dùng cho tính năng: "Vì bạn đã xem/thích phim X" hoặc "Phim tương tự".
     """
-    def recommend(self, conn: sqlite3.Connection, user_id: int = None, movie_id: int = None, top_k: int = 10) -> List[Dict[str, Any]]:
+    def recommend(
+            self,
+            conn: sqlite3.Connection,
+            user_id: int = None,
+            movie_id: int = None,
+            top_k: int = 10
+        ) -> List[Dict[str, Any]]:
         if not movie_id:
             return []
 
