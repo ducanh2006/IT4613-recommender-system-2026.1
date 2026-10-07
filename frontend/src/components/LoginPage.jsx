@@ -9,7 +9,7 @@ const DEMO_ACCOUNTS = [
   { username: "charlie", password: "123456", label: "Charlie (Cold Start)" },
 ];
 
-export default function LoginPage({ onLoginSuccess, onGuestAccess }) {
+export default function LoginPage({ onLoginSuccess, onGuestAccess, onBackToMovies }) {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -50,6 +50,16 @@ export default function LoginPage({ onLoginSuccess, onGuestAccess }) {
 
   return (
     <div className="login-page">
+      {onBackToMovies && (
+        <button
+          type="button"
+          className="btn-back-home"
+          onClick={onBackToMovies}
+          title="Quay lại trang chủ"
+        >
+          ← Quay lại xem phim
+        </button>
+      )}
       <div className="login-hero">
         <div className="login-brand">
           <span className="brand-title">RECSYS MOVIE</span>
@@ -154,7 +164,7 @@ export default function LoginPage({ onLoginSuccess, onGuestAccess }) {
               className="btn-guest-access"
               onClick={onGuestAccess}
             >
-              👀 Khám phá ngay với tư cách Khách
+              Khám phá ngay với tư cách Khách →
             </button>
           </div>
         )}

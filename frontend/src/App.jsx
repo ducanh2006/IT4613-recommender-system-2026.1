@@ -6,7 +6,7 @@ import LoginPage from "./components/LoginPage";
 import { api } from "./services/api";
 
 export default function App() {
-  // Phiên đăng nhập được khôi phục từ localStorage
+  // Phiên đăng nhập được khôi phục từ localStorage (nếu có)
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem("recsys_user");
@@ -16,8 +16,11 @@ export default function App() {
     }
   });
 
-  // Modal đăng nhập (hiển thị khi khách bấm Đăng nhập hoặc khi chưa chọn chế độ)
-  const [showLoginModal, setShowLoginModal] = useState(false);
+  // Mặc định luôn cho phép duyệt ở chế độ khách vãng lai
+  const [isGuest, setIsGuest] = useState(true);
+
+  // Điều khiển hiển thị toàn trang Đăng nhập / Đăng ký (mặc định không mở)
+  const [showLoginPage, setShowLoginPage] = useState(false);
 
   const [trendingMovies, setTrendingMovies] = useState([]);
   const [personalizedMovies, setPersonalizedMovies] = useState([]);
@@ -29,16 +32,24 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
 
-  // Đăng nhập thành công: lưu phiên để lần sau không phải nhập lại
+  // Đăng nhập thành công: lưu phiên, đóng trang login
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
-    setShowLoginModal(false);
+    setShowLoginPage(false);
     localStorage.setItem("recsys_user", JSON.stringify(user));
   };
 
-  // Đăng xuất: chuyển về trạng thái khách vãng lai
+  // Chọn tiếp tục với tư cách khách từ màn hình login
+  const handleGuestAccess = () => {
+    setIsGuest(true);
+    setShowLoginPage(false);
+  };
+
+  // Đăng xuất: chuyển về chế độ khách vãng lai trên trang chủ
   const handleLogout = () => {
     setCurrentUser(null);
+    setIsGuest(true);
+    setShowLoginPage(false);
     localStorage.removeItem("recsys_user");
     setSearchQuery("");
     setSearchResults([]);
@@ -102,13 +113,24 @@ export default function App() {
     loadPersonalized(currentUser?.id);
   };
 
+  // Khi bấm Đăng Nhập hoặc khi cần đăng nhập để thao tác
+  if (showLoginPage) {
+    return (
+      <LoginPage
+        onLoginSuccess={handleLoginSuccess}
+        onGuestAccess={handleGuestAccess}
+        onBackToMovies={() => setShowLoginPage(false)}
+      />
+    );
+  }
+
   return (
     <div>
       {/* 1. Thanh điều hướng */}
       <Navbar
         currentUser={currentUser}
         onLogout={handleLogout}
-        onOpenLogin={() => setShowLoginModal(true)}
+        onOpenLogin={() => setShowLoginPage(true)}
         searchQuery={searchQuery}
         onSearch={setSearchQuery}
       />
@@ -187,27 +209,8 @@ export default function App() {
           onClose={() => setSelectedMovie(null)}
           onRateSuccess={handleRateSuccess}
           onSelectMovie={(m) => setSelectedMovie(m)}
-          onPromptLogin={() => setShowLoginModal(true)}
+          onPromptLogin={() => setShowLoginPage(true)}
         />
-      )}
-
-      {/* 4. Modal đăng nhập khi khách click Đăng nhập hoặc muốn Chấm sao */}
-      {showLoginModal && (
-        <div className="login-modal-overlay" onClick={() => setShowLoginModal(false)}>
-          <div className="login-modal-content" onClick={(e) => e.stopPropagation()}>
-            <button
-              className="login-modal-close"
-              onClick={() => setShowLoginModal(false)}
-              title="Đóng"
-            >
-              ✕
-            </button>
-            <LoginPage
-              onLoginSuccess={handleLoginSuccess}
-              onGuestAccess={() => setShowLoginModal(false)}
-            />
-          </div>
-        </div>
       )}
     </div>
   );

@@ -284,6 +284,7 @@ body {
 
 /* TRANG ĐĂNG NHẬP / ĐĂNG KÝ */
 .login-page {
+  position: relative;
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1.1fr 1fr;
@@ -291,6 +292,27 @@ body {
   gap: 40px;
   padding: 48px 8vw;
   background: linear-gradient(120deg, #0b0b0b 0%, #161616 55%, #241012 100%);
+}
+
+.btn-back-home {
+  position: absolute;
+  top: 24px;
+  left: 8vw;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ddd;
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-back-home:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-color: #e50914;
 }
 
 .login-hero {
@@ -479,19 +501,20 @@ body {
 .btn-guest-access {
   width: 100%;
   background-color: transparent;
-  color: #4ade80;
-  border: 1px solid #22c55e;
+  color: #ccc;
+  border: 1px solid #444;
   border-radius: 4px;
-  padding: 9px 14px;
+  padding: 10px 14px;
   font-size: 0.88rem;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .btn-guest-access:hover {
-  background-color: #22c55e;
-  color: #000;
+  background-color: #262626;
+  border-color: #777;
+  color: #fff;
 }
 
 .guest-badge {
@@ -512,46 +535,5 @@ body {
   height: 8px;
   border-radius: 50%;
   background-color: #10b981;
-}
-
-/* MODAL ĐĂNG NHẬP DẠNG POPUP */
-.login-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 16px;
-}
-
-.login-modal-content {
-  position: relative;
-  max-width: 440px;
-  width: 100%;
-}
-
-.login-modal-close {
-  position: absolute;
-  top: -12px;
-  right: -12px;
-  background: #333;
-  color: #fff;
-  border: 1px solid #555;
-  border-radius: 50%;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.85rem;
-  cursor: pointer;
-  z-index: 10;
-}
-
-.login-modal-close:hover {
-  background: #e50914;
-  border-color: #e50914;
 }
 
