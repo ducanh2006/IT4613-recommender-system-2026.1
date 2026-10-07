@@ -4,9 +4,15 @@ import sqlite3
 from ..database import get_db
 from ..models.db_models import MovieResponse, GenreResponse
 
-router = APIRouter(prefix="/api/movies", tags=["Movies"])
+router = APIRouter(
+    prefix="/api/movies",
+    tags=["Movies"]
+)
 
-def _format_movie(row, user_rating=None):
+def _format_movie(
+    row,
+    user_rating=None
+):
     genres_list = row["genre_names"].split(", ") if row["genre_names"] else []
     return {
         "id": row["id"],
@@ -24,7 +30,9 @@ def _format_movie(row, user_rating=None):
     }
 
 @router.get("/banner", response_model=MovieResponse)
-def get_banner_movie(db: sqlite3.Connection = Depends(get_db)):
+def get_banner_movie(
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     # Chọn phim điểm cao, có backdrop đẹp làm banner (ví dụ Inception hoặc Avengers)
     row = cursor.execute("""
@@ -45,10 +53,16 @@ def get_banner_movie(db: sqlite3.Connection = Depends(get_db)):
 def get_genres(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     rows = cursor.execute("SELECT id, name FROM genres ORDER BY id;").fetchall()
-    return [{"id": r["id"], "name": r["name"]} for r in rows]
+    return [
+        {"id": r["id"], "name": r["name"]} for r in rows
+    ]
 
 @router.get("/by-genre/{genre_id}", response_model=List[MovieResponse])
-def get_movies_by_genre(genre_id: int, user_id: Optional[int] = None, db: sqlite3.Connection = Depends(get_db)):
+def get_movies_by_genre(
+    genre_id: int,
+    user_id: Optional[int] = None,
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     rows = cursor.execute("""
         SELECT m.*, GROUP_CONCAT(g.name, ', ') AS genre_names
@@ -68,7 +82,11 @@ def get_movies_by_genre(genre_id: int, user_id: Optional[int] = None, db: sqlite
     return [_format_movie(r, user_ratings.get(r["id"])) for r in rows]
 
 @router.get("/search", response_model=List[MovieResponse])
-def search_movies(q: str = Query(..., min_length=1), user_id: Optional[int] = None, db: sqlite3.Connection = Depends(get_db)):
+def search_movies(
+    q: str = Query(..., min_length=1),
+    user_id: Optional[int] = None,
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     keyword = f"%{q.strip()}%"
     rows = cursor.execute("""
@@ -89,7 +107,11 @@ def search_movies(q: str = Query(..., min_length=1), user_id: Optional[int] = No
     return [_format_movie(r, user_ratings.get(r["id"])) for r in rows]
 
 @router.get("/{movie_id}", response_model=MovieResponse)
-def get_movie_detail(movie_id: int, user_id: Optional[int] = None, db: sqlite3.Connection = Depends(get_db)):
+def get_movie_detail(
+    movie_id: int,
+    user_id: Optional[int] = None,
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     row = cursor.execute("""
         SELECT m.*, GROUP_CONCAT(g.name, ', ') AS genre_names
