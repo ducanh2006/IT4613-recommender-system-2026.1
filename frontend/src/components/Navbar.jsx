@@ -3,6 +3,7 @@ import React from "react";
 export default function Navbar({
   currentUser,
   onLogout,
+  onOpenLogin,
   searchQuery,
   onSearch,
 }) {
@@ -23,19 +24,33 @@ export default function Navbar({
           onChange={(e) => onSearch(e.target.value)}
         />
 
-        {/* Thông tin tài khoản đang đăng nhập */}
-        <div className="user-chip" title={currentUser.full_name || currentUser.username}>
-          <img
-            className="user-avatar"
-            src={currentUser.avatar_url}
-            alt={currentUser.username}
-          />
-          <span className="user-name">{currentUser.full_name || currentUser.username}</span>
-        </div>
+        {/* Thông tin tài khoản hoặc Khách */}
+        {currentUser ? (
+          <>
+            <div className="user-chip" title={currentUser.full_name || currentUser.username}>
+              <img
+                className="user-avatar"
+                src={currentUser.avatar_url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=faces"}
+                alt={currentUser.username}
+              />
+              <span className="user-name">{currentUser.full_name || currentUser.username}</span>
+            </div>
 
-        <button className="btn-auth btn-logout" onClick={onLogout}>
-          Đăng Xuất
-        </button>
+            <button className="btn-auth btn-logout" onClick={onLogout}>
+              Đăng Xuất
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="guest-badge" title="Bạn đang duyệt với tư cách Khách vãng lai">
+              <span className="guest-dot"></span>
+              <span>Khách vãng lai</span>
+            </div>
+            <button className="btn-auth" onClick={onOpenLogin}>
+              Đăng Nhập
+            </button>
+          </>
+        )}
       </div>
     </header>
   );

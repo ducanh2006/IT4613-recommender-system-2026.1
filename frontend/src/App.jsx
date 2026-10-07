@@ -16,6 +16,9 @@ export default function App() {
     }
   });
 
+  // Modal đăng nhập (hiển thị khi khách bấm Đăng nhập hoặc khi chưa chọn chế độ)
+  const [showLoginModal, setShowLoginModal] = useState(false);
+
   const [trendingMovies, setTrendingMovies] = useState([]);
   const [personalizedMovies, setPersonalizedMovies] = useState([]);
   const [actionMovies, setActionMovies] = useState([]);
@@ -29,14 +32,14 @@ export default function App() {
   // Đăng nhập thành công: lưu phiên để lần sau không phải nhập lại
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
+    setShowLoginModal(false);
     localStorage.setItem("recsys_user", JSON.stringify(user));
   };
 
-  // Đăng xuất: xóa phiên và mọi dữ liệu gắn với user cũ
+  // Đăng xuất: chuyển về trạng thái khách vãng lai
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem("recsys_user");
-    setPersonalizedMovies([]);
     setSearchQuery("");
     setSearchResults([]);
     setSelectedMovie(null);
@@ -56,38 +59,38 @@ export default function App() {
       setAnimationMovies(anim);
       setScifiMovies(scifi);
     } catch (err) {
-      console.error(err);
+      console.error("Lỗi tải phim:", err);
     }
   };
 
-  // Tải riêng hàng gợi ý cá nhân hóa
+  // Tải riêng hàng gợi ý cá nhân hóa (hoặc fallback Popularity nếu không có user_id)
   const loadPersonalized = async (userId) => {
     try {
       const recs = await api.getPersonalized(userId, 10);
       setPersonalizedMovies(recs);
     } catch (err) {
-      console.error(err);
+      console.error("Lỗi tải gợi ý:", err);
     }
   };
 
+  // Luôn tải danh mục phim ngay khi vào ứng dụng (cả khách và user đã login)
   useEffect(() => {
-    if (!currentUser) return;
     loadMovies();
+  }, []);
+
+  // Tải gợi ý khi user thay đổi (nếu khách vãng lai, truyền undefined để backend fallback Popularity)
+  useEffect(() => {
+    loadPersonalized(currentUser?.id);
   }, [currentUser]);
 
+  // Tìm kiếm phim (hỗ trợ cả khách vãng lai)
   useEffect(() => {
-    if (!currentUser) return;
-    loadPersonalized(currentUser.id);
-  }, [currentUser]);
-
-  // Tìm kiếm phim
-  useEffect(() => {
-    if (!currentUser || !searchQuery.trim()) {
+    if (!searchQuery.trim()) {
       setSearchResults([]);
       return;
     }
     const timer = setTimeout(() => {
-      api.searchMovies(searchQuery, currentUser.id)
+      api.searchMovies(searchQuery, currentUser?.id)
         .then((res) => setSearchResults(res))
         .catch((err) => console.error(err));
     }, 250);
@@ -96,15 +99,8 @@ export default function App() {
 
   // Xử lý sau khi người dùng chấm sao
   const handleRateSuccess = () => {
-    if (currentUser?.id) {
-      loadPersonalized(currentUser.id);
-    }
+    loadPersonalized(currentUser?.id);
   };
-
-  // Chưa đăng nhập thì chỉ hiển thị trang đăng nhập
-  if (!currentUser) {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
-  }
 
   return (
     <div>
@@ -112,6 +108,7 @@ export default function App() {
       <Navbar
         currentUser={currentUser}
         onLogout={handleLogout}
+        onOpenLogin={() => setShowLoginModal(true)}
         searchQuery={searchQuery}
         onSearch={setSearchQuery}
       />
@@ -140,37 +137,41 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* HÀNG 1: GỢI Ý CÁ NHÂN HÓA */}
+            {/* HÀNG 1: GỢI Ý (Cá nhân hóa cho User hoặc Gợi ý phổ biến cho Khách) */}
             <MovieRow
-              title={`Gợi ý dành riêng cho bạn (${currentUser.username})`}
+              title={
+                currentUser
+                  ? `✨ Gợi ý dành riêng cho bạn (${currentUser.username})`
+                  : "🔥 Gợi ý cho bạn (Phổ biến nhất)"
+              }
               movies={personalizedMovies}
               onSelectMovie={(m) => setSelectedMovie(m)}
             />
 
             {/* HÀNG 2: XU HƯỚNG THỊNH HÀNH */}
             <MovieRow
-              title="Phim thịnh hành"
+              title="📈 Phim thịnh hành"
               movies={trendingMovies}
               onSelectMovie={(m) => setSelectedMovie(m)}
             />
 
             {/* HÀNG 3: HÀNH ĐỘNG */}
             <MovieRow
-              title="Phim Hành Động"
+              title="💥 Phim Hành Động"
               movies={actionMovies}
               onSelectMovie={(m) => setSelectedMovie(m)}
             />
 
             {/* HÀNG 4: HOẠT HÌNH & ANIME */}
             <MovieRow
-              title="Phim Hoạt Hình & Anime"
+              title="🎨 Phim Hoạt Hình & Anime"
               movies={animationMovies}
               onSelectMovie={(m) => setSelectedMovie(m)}
             />
 
             {/* HÀNG 5: KHOA HỌC VIỄN TƯỞNG */}
             <MovieRow
-              title="Phim Khoa Học Viễn Tưởng"
+              title="🚀 Phim Khoa Học Viễn Tưởng"
               movies={scifiMovies}
               onSelectMovie={(m) => setSelectedMovie(m)}
             />
@@ -178,7 +179,7 @@ export default function App() {
         )}
       </div>
 
-      {/* 3. Modal phát trailer & chấm điểm */}
+      {/* 3. Modal phát trailer & xem phim tương tự */}
       {selectedMovie && (
         <VideoModal
           movie={selectedMovie}
@@ -186,7 +187,27 @@ export default function App() {
           onClose={() => setSelectedMovie(null)}
           onRateSuccess={handleRateSuccess}
           onSelectMovie={(m) => setSelectedMovie(m)}
+          onPromptLogin={() => setShowLoginModal(true)}
         />
+      )}
+
+      {/* 4. Modal đăng nhập khi khách click Đăng nhập hoặc muốn Chấm sao */}
+      {showLoginModal && (
+        <div className="login-modal-overlay" onClick={() => setShowLoginModal(false)}>
+          <div className="login-modal-content" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="login-modal-close"
+              onClick={() => setShowLoginModal(false)}
+              title="Đóng"
+            >
+              ✕
+            </button>
+            <LoginPage
+              onLoginSuccess={handleLoginSuccess}
+              onGuestAccess={() => setShowLoginModal(false)}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

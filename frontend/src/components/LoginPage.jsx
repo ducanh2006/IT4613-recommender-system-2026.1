@@ -9,7 +9,7 @@ const DEMO_ACCOUNTS = [
   { username: "charlie", password: "123456", label: "Charlie (Cold Start)" },
 ];
 
-export default function LoginPage({ onLoginSuccess }) {
+export default function LoginPage({ onLoginSuccess, onGuestAccess }) {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -143,6 +143,21 @@ export default function LoginPage({ onLoginSuccess }) {
             ))}
           </div>
         </div>
+
+        {onGuestAccess && (
+          <div className="guest-action-box">
+            <div className="guest-divider">
+              <span>hoặc</span>
+            </div>
+            <button
+              type="button"
+              className="btn-guest-access"
+              onClick={onGuestAccess}
+            >
+              👀 Khám phá ngay với tư cách Khách
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

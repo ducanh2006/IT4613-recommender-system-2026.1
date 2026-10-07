@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../services/api";
 
-export default function VideoModal({ movie, currentUser, onClose, onRateSuccess, onSelectMovie }) {
+export default function VideoModal({ movie, currentUser, onClose, onRateSuccess, onSelectMovie, onPromptLogin }) {
   const [userRating, setUserRating] = useState(movie?.user_rating || 0);
   const [similarMovies, setSimilarMovies] = useState([]);
   const [message, setMessage] = useState("");
@@ -21,7 +21,10 @@ export default function VideoModal({ movie, currentUser, onClose, onRateSuccess,
 
   const handleRate = async (star) => {
     if (!currentUser) {
-      setMessage("Vui lòng chọn hoặc đăng nhập người dùng để chấm sao!");
+      setMessage("⚠️ Bạn cần đăng nhập để lưu đánh giá và nhận gợi ý cá nhân hóa!");
+      if (onPromptLogin) {
+        setTimeout(() => onPromptLogin(), 700);
+      }
       return;
     }
     try {
