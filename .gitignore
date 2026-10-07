@@ -17,3 +17,6 @@ env/
 # Environment
 .env
 
+# Cấu hình editor theo máy (VS Code)
+.vscode/
+
