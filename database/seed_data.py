@@ -283,11 +283,14 @@ def init_database():
     ]
     cursor.executemany("INSERT OR REPLACE INTO ratings (user_id, movie_id, rating) VALUES (?, ?, ?);", ratings_data)
 
-    # 6. Cập nhật lại rating_avg và vote_count cho bảng movies
+    # 6. Cập nhật rating_avg và vote_count THẬT từ bảng ratings.
+    #    - Bỏ hoàn toàn số giả: không cộng +120, không fallback 4.2.
+    #    - Số liệu cộng đồng thật (từ MovieLens-32m) sẽ được ETL ghi đè qua:
+    #         python -m backend.etl.build_artifacts --backfill-db
     cursor.execute("""
         UPDATE movies
-        SET rating_avg = COALESCE((SELECT AVG(rating) FROM ratings WHERE ratings.movie_id = movies.id), 4.2),
-            vote_count = COALESCE((SELECT COUNT(rating) FROM ratings WHERE ratings.movie_id = movies.id), 1) + 120
+        SET rating_avg = COALESCE((SELECT AVG(rating) FROM ratings WHERE ratings.movie_id = movies.id), 0.0),
+            vote_count = COALESCE((SELECT COUNT(rating) FROM ratings WHERE ratings.movie_id = movies.id), 0)
     """)
 
     conn.commit()

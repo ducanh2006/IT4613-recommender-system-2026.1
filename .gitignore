@@ -2,6 +2,10 @@
 database/*.db
 database/*.sqlite3
 
+# Dataset MovieLens-32m (~1GB, không commit) và artifact precompute (tái tạo được)
+ml-32m/
+backend/artifacts/
+
 # Node / React
 frontend/node_modules/
 frontend/dist/

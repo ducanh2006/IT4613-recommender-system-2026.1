@@ -24,14 +24,6 @@ def rate_movie(req: RateMovieRequest, db: sqlite3.Connection = Depends(get_db)):
             timestamp = CURRENT_TIMESTAMP;
     """, (req.user_id, req.movie_id, req.rating))
 
-    # Cập nhật lại rating_avg của phim
-    cursor.execute("""
-        UPDATE movies
-        SET rating_avg = (SELECT AVG(rating) FROM ratings WHERE movie_id = ?),
-            vote_count = (SELECT COUNT(*) FROM ratings WHERE movie_id = ?) + 120
-        WHERE id = ?;
-    """, (req.movie_id, req.movie_id, req.movie_id))
-
     db.commit()
     return {"message": "Đánh giá thành công!", "user_id": req.user_id, "movie_id": req.movie_id, "rating": req.rating}
 

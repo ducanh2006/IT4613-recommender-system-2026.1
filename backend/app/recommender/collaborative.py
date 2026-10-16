@@ -1,113 +1,135 @@
 import sqlite3
-import numpy as np
 from typing import List, Dict, Any
+
+from ..config import LIKE_THRESHOLD, W_CF, W_CONTENT, W_POP, RATING_SCALE
 from .base import BaseRecommender
 from .popularity import PopularityRecommender
+from .utils import fetch_movies_with_genres, build_movie_payload, minmax
+from .loader import get_similarity, get_popularity
+
+
+def _genre_cosine(user_genre: Dict[int, float], movie_genre_ids: List[int]) -> float:
+    """Cosine giữa vector sở thích thể loại của user và one-hot thể loại của phim (đã có giới hạn [0,1])."""
+    if not user_genre or not movie_genre_ids:
+        return 0.0
+    num = sum(user_genre.get(g, 0.0) for g in movie_genre_ids)
+    if num <= 0:
+        return 0.0
+    den_user = sum(v * v for v in user_genre.values()) ** 0.5
+    den_movie = len(movie_genre_ids) ** 0.5
+    den = den_user * den_movie
+    return float(num / den) if den > 0 else 0.0
+
 
 class CollaborativeRecommender(BaseRecommender):
     """
-    Gợi ý phim cá nhân hóa theo User (Personalized Recommender)
-    - Nếu User chưa có đánh giá nào (Cold-start User): Tự động fallback sang PopularityRecommender.
-    - Nếu User đã có đánh giá:
-        + Tìm các thể loại và bộ phim người dùng yêu thích (rating >= 3.5)
-        + Tìm các người dùng khác có sở thích tương đồng (User-based heuristic)
-        + Dự đoán và xếp hạng các bộ phim chưa xem phù hợp nhất với hồ sơ người dùng.
+    Gợi ý cá nhân hóa "dành cho bạn" (for-you).
+
+    Đây là Item-based Collaborative Filtering lai:
+      - cf_score: điểm dự đoán từ item-item similarity (cosine + shrinkage) precompute
+        từ MovieLens-32m, kết hợp rating của user trên các phim đã thích.
+      - content_score: cosine giữa hồ sơ thể loại của user và thể loại phim.
+      - popularity_score: weighted rating (normalized) của phim.
+    Điểm cuối: weighted = W_CF*cf + W_CONTENT*content + W_POP*pop, ánh xạ về thang 1-5.
+
+    - Cold-start (user chưa có rating): fallback sang PopularityRecommender.
+    - Chưa có artifact ML-32m: cf=0, vẫn chạy được nhờ content + popularity.
     """
+
     def __init__(self):
         self.popularity_engine = PopularityRecommender()
 
-    def recommend(self, conn: sqlite3.Connection, user_id: int = None, movie_id: int = None, top_k: int = 10) -> List[Dict[str, Any]]:
+    def _fallback_to_popularity(self, conn, top_k):
+        """Cold-start / hết ứng viên: dùng popularity nhưng giữ field predicted_score cho nhất quán."""
+        recs = self.popularity_engine.recommend(conn, top_k=top_k)
+        for r in recs:
+            r["predicted_score"] = r.pop("score", round(r.get("rating_avg") or 0.0, 2))
+        return recs
+
+    def recommend(
+        self,
+        conn: sqlite3.Connection,
+        user_id: int = None,
+        movie_id: int = None,
+        top_k: int = 10,
+    ) -> List[Dict[str, Any]]:
         if not user_id:
-            return self.popularity_engine.recommend(conn, top_k=top_k)
+            return self._fallback_to_popularity(conn, top_k)
 
         cursor = conn.cursor()
-        
-        # 1. Lấy lịch sử đánh giá của user
-        user_ratings = cursor.execute("""
-            SELECT movie_id, rating FROM ratings WHERE user_id = ?;
-        """, (user_id,)).fetchall()
+        user_ratings = cursor.execute(
+            "SELECT movie_id, rating FROM ratings WHERE user_id = ?;", (user_id,)
+        ).fetchall()
 
-        # Xử lý bài toán Cold-Start
         if not user_ratings:
-            print(f"[Recommender] User {user_id} chưa có rating (Cold-start) -> Dùng Popularity Recommender")
-            return self.popularity_engine.recommend(conn, top_k=top_k)
+            return self._fallback_to_popularity(conn, top_k)
 
-        rated_movie_ids = set([r["movie_id"] for r in user_ratings])
-        high_rated_movies = [r["movie_id"] for r in user_ratings if r["rating"] >= 3.5]
-        if not high_rated_movies:
-            high_rated_movies = [r["movie_id"] for r in user_ratings]
+        rated = {r["movie_id"]: r["rating"] for r in user_ratings}
+        liked = {mid: r for mid, r in rated.items() if r >= LIKE_THRESHOLD}
+        if not liked:
+            liked = dict(rated)
 
-        # 2. Xác định các thể loại mà user yêu thích nhất
-        fav_genres = cursor.execute(f"""
-            SELECT mg.genre_id, COUNT(*) as cnt, AVG(r.rating) as avg_r
-            FROM ratings r
-            JOIN movie_genres mg ON r.movie_id = mg.movie_id
-            WHERE r.user_id = ? AND r.rating >= 3.5
-            GROUP BY mg.genre_id
-            ORDER BY avg_r DESC, cnt DESC;
-        """, (user_id,)).fetchall()
-        
-        fav_genre_ids = set([g["genre_id"] for g in fav_genres])
+        movies = fetch_movies_with_genres(conn)
+        genre_map = {m["id"]: m["genre_ids"] for m in movies}
+        sim_mat = get_similarity()
+        pop = get_popularity()
 
-        # 3. Lấy tất cả các phim mà user CHƯA đánh giá
-        candidate_movies = cursor.execute("""
-            SELECT m.*, GROUP_CONCAT(mg.genre_id) AS genre_ids, GROUP_CONCAT(g.name, ', ') AS genre_names
-            FROM movies m
-            LEFT JOIN movie_genres mg ON m.id = mg.movie_id
-            LEFT JOIN genres g ON mg.genre_id = g.id
-            GROUP BY m.id
-        """).fetchall()
+        # Hồ sơ thể loại của user (trung bình rating theo từng thể loại đã thích)
+        genre_sum: Dict[int, float] = {}
+        genre_cnt: Dict[int, int] = {}
+        for mid, r in liked.items():
+            for gid in genre_map.get(mid, []):
+                genre_sum[gid] = genre_sum.get(gid, 0.0) + r
+                genre_cnt[gid] = genre_cnt.get(gid, 0) + 1
+        user_genre = {g: genre_sum[g] / genre_cnt[g] for g in genre_sum}
 
-        scored_candidates = []
-        for movie in candidate_movies:
-            mid = movie["id"]
-            if mid in rated_movie_ids:
-                continue # Đã đánh giá rồi thì không gợi ý lại
+        candidates = []
+        for row in movies:
+            mid = row["id"]
+            if mid in rated:
+                continue  # đã đánh giá thì không gợi ý lại
 
-            # Tính điểm tương hợp thể loại (Genre Match Score)
-            movie_genres = [int(x) for x in movie["genre_ids"].split(",")] if movie["genre_ids"] else []
-            match_count = sum(1 for gid in movie_genres if gid in fav_genre_ids)
-            genre_score = match_count * 1.5
+            # 1. Content score (cosine thể loại, [0,1])
+            content = _genre_cosine(user_genre, genre_map.get(mid, []))
 
-            # Tìm xem có user nào khác cũng đánh giá cao phim này mà có chung sở thích với user hiện tại không
-            similar_user_ratings = cursor.execute("""
-                SELECT AVG(r2.rating)
-                FROM ratings r1
-                JOIN ratings r2 ON r1.user_id = r2.user_id
-                WHERE r1.movie_id IN ({})
-                  AND r1.user_id != ?
-                  AND r2.movie_id = ?
-                  AND r1.rating >= 4.0
-            """.format(",".join("?" * len(high_rated_movies))), (*high_rated_movies, user_id, mid)).fetchone()
+            # 2. Collaborative score (item-item, chuẩn hóa về [0,1])
+            if sim_mat is not None:
+                num = 0.0
+                den = 0.0
+                for j, rj in liked.items():
+                    s = sim_mat.get(mid, j)
+                    num += s * rj
+                    den += abs(s)
+                cf_raw = (num / den) if den > 0 else 0.0
+                cf = max(0.0, min(RATING_SCALE, cf_raw)) / RATING_SCALE
+            else:
+                cf = 0.0
 
-            cf_score = similar_user_ratings[0] if (similar_user_ratings and similar_user_ratings[0]) else 0.0
+            # 3. Popularity (giá trị thô, sẽ min-max ở bước sau)
+            if pop and mid in pop:
+                pop_val = pop[mid].get("weighted_rating") or 0.0
+                row["rating_avg"] = pop[mid].get("mean_rating") or 0.0
+                row["vote_count"] = pop[mid].get("vote_count") or 0
+            else:
+                pop_val = row["rating_avg"] or 0.0
 
-            # Tổng hợp điểm dự đoán (Predicted Preference Score)
-            # Baseline: Điểm phim + Thể loại phù hợp + Đánh giá từ người dùng tương tự
-            base_rating = movie["rating_avg"] or 4.0
-            total_score = base_rating * 0.4 + genre_score * 0.4 + cf_score * 0.2
+            candidates.append(
+                {"row": row, "content": content, "cf": cf, "pop_val": pop_val}
+            )
 
-            genres_list = movie["genre_names"].split(", ") if movie["genre_names"] else []
-            scored_candidates.append({
-                "id": movie["id"],
-                "title": movie["title"],
-                "overview": movie["overview"],
-                "release_year": movie["release_year"],
-                "poster_url": movie["poster_url"],
-                "backdrop_url": movie["backdrop_url"],
-                "trailer_youtube_id": movie["trailer_youtube_id"],
-                "duration_minutes": movie["duration_minutes"],
-                "rating_avg": round(movie["rating_avg"], 1),
-                "vote_count": movie["vote_count"],
-                "genres": genres_list,
-                "predicted_score": round(float(total_score), 2)
-            })
+        if not candidates:
+            return self._fallback_to_popularity(conn, top_k)
 
-        # Sắp xếp theo điểm dự đoán giảm dần
-        scored_candidates.sort(key=lambda x: x["predicted_score"], reverse=True)
+        # Chuẩn hóa popularity theo min-max trong tập ứng viên
+        pop_norm = minmax([c["pop_val"] for c in candidates])
 
-        # Nếu không còn phim nào chưa xem thì fallback lại trending
-        if not scored_candidates:
-            return self.popularity_engine.recommend(conn, top_k=top_k)
+        results = []
+        for c, pn in zip(candidates, pop_norm):
+            weighted = W_CF * c["cf"] + W_CONTENT * c["content"] + W_POP * pn
+            predicted = round(1 + 4 * weighted, 2)
+            results.append(
+                build_movie_payload(c["row"], "predicted_score", predicted)
+            )
 
-        return scored_candidates[:top_k]
+        results.sort(key=lambda x: (-x["predicted_score"], x["id"]))
+        return results[:top_k]
