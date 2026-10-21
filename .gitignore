@@ -17,3 +17,13 @@ env/
 # Environment
 .env
 
+# Plans
+plans/
+
+# Offline benchmark
+data/
+results/*
+!results/latest/
+.pytest_cache/
+
+
