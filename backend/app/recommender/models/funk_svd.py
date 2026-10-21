@@ -9,32 +9,22 @@ from ..contracts import (
     RecommendationMode,
     RecommendationRequest,
     RecommendationResult,
-    RecommenderCapabilities,
-    UnsupportedOperation,
 )
 from ._base import (
+    BaseRecommender,
     build_rating_matrix,
     build_result,
-    item_popularity_scores,
-    popularity_stats,
+    candidate_scores,
+    make_capabilities,
     rank_scores,
     resolve_candidate_items,
-    user_seen_items,
 )
 
 
-class FunkSVDRecommender:
+class FunkSVDRecommender(BaseRecommender):
     name = "funk_svd"
     version = "1.0.0"
-    capabilities = RecommenderCapabilities(
-        requires_training=True,
-        supports_cold_start=True,
-        supports_rating_prediction=True,
-        supports_incremental_update=False,
-        supported_modes=frozenset(
-            {RecommendationMode.PERSONALIZED, RecommendationMode.TRENDING}
-        ),
-    )
+    capabilities = make_capabilities(supports_rating_prediction=True)
 
     def __init__(
         self,
@@ -45,6 +35,7 @@ class FunkSVDRecommender:
         patience: int = 3,
         seed: int = 42,
     ) -> None:
+        super().__init__()
         self.n_factors = int(n_factors)
         self.n_epochs = int(n_epochs)
         self.learning_rate = float(learning_rate)
@@ -60,17 +51,14 @@ class FunkSVDRecommender:
         self.item_ids: tuple[Hashable, ...] = ()
         self.user_index: dict[Hashable, int] = {}
         self.item_index: dict[Hashable, int] = {}
-        self.seen_items: dict[Hashable, frozenset[Hashable]] = {}
-        self.popularity_scores: dict[Hashable, float] = {}
-        self.known_items: tuple[Hashable, ...] = ()
-        self.best_epoch = 0
-        self.validation_rmse: list[float] = []
 
     def fit(
         self,
         data: Dataset,
         validation: Dataset | None = None,
     ) -> "FunkSVDRecommender":
+        super().fit(data, validation)
+        self._fit_popularity(data)
         rating_matrix = build_rating_matrix(data)
         values = rating_matrix.values
         user_idx, item_idx = np.where(~np.isnan(values))
@@ -80,12 +68,6 @@ class FunkSVDRecommender:
         self.item_ids = rating_matrix.item_ids
         self.user_index = {value: idx for idx, value in enumerate(self.user_ids)}
         self.item_index = {value: idx for idx, value in enumerate(self.item_ids)}
-        self.seen_items = user_seen_items(data)
-        stats = popularity_stats(data)
-        self.popularity_scores = item_popularity_scores(
-            stats,
-            fallback_m=50.0,
-        )
         self.known_items = tuple(self.item_ids)
 
         rng = np.random.default_rng(self.seed)
@@ -97,7 +79,6 @@ class FunkSVDRecommender:
         best_rmse = float("inf")
         best_state: tuple[np.ndarray, ...] | None = None
         stale_epochs = 0
-        self.validation_rmse = []
         indices = np.arange(len(ratings))
 
         for epoch in range(1, self.n_epochs + 1):
@@ -131,7 +112,6 @@ class FunkSVDRecommender:
 
             if validation is not None and not validation.ratings.empty:
                 rmse = self._validation_rmse(validation)
-                self.validation_rmse.append(rmse)
                 if rmse + 1e-8 < best_rmse:
                     best_rmse = rmse
                     best_state = (
@@ -140,7 +120,6 @@ class FunkSVDRecommender:
                         self.user_factors.copy(),
                         self.item_factors.copy(),
                     )
-                    self.best_epoch = epoch
                     stale_epochs = 0
                 else:
                     stale_epochs += 1
@@ -181,42 +160,21 @@ class FunkSVDRecommender:
         )
         return scores.astype(np.float32)
 
-    def _popularity_fallback(
-        self,
-        request: RecommendationRequest,
-        reason: str = "popular_fallback",
-    ) -> RecommendationResult:
-        candidates = resolve_candidate_items(request, self.known_items, self.seen_items)
-        scores = {
-            item_id: self.popularity_scores.get(item_id, 0.0)
-            for item_id in candidates
-        }
-        ranked = rank_scores(scores, request, tie_breakers=self.popularity_scores)
-        return build_result(
-            self.name,
-            self.version,
-            request,
-            ranked,
-            reason=reason,
-            fallback_used=True,
-        )
-
     def recommend(self, request: RecommendationRequest) -> RecommendationResult:
-        if request.mode not in self.capabilities.supported_modes:
-            raise UnsupportedOperation(f"funk_svd does not support {request.mode.value}")
+        self._check_mode(request)
         if request.mode is RecommendationMode.TRENDING:
             return self._popularity_fallback(request, "trending_fallback")
         if request.user_id not in self.user_index:
             return self._popularity_fallback(request)
         user_idx = self.user_index[request.user_id]
-        scores_array = self._score_user(user_idx)
         candidates = resolve_candidate_items(request, self.known_items, self.seen_items)
-        scores = {
-            item_id: float(scores_array[self.item_index[item_id]])
-            for item_id in candidates
-        }
+        scores = candidate_scores(
+            self._score_user(user_idx), candidates, self.item_index
+        )
         ranked = rank_scores(scores, request, tie_breakers=self.popularity_scores)
-        return build_result(self.name, self.version, request, ranked, reason="matrix_factorization")
+        return build_result(
+            self.name, self.version, request, ranked, reason="matrix_factorization"
+        )
 
     def predict(self, user_id: Hashable, item_id: Hashable) -> float:
         user_idx = self.user_index.get(user_id)

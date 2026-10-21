@@ -4,38 +4,27 @@ from typing import Hashable
 
 from ..contracts import (
     Dataset,
-    RecommendationMode,
     RecommendationRequest,
     RecommendationResult,
-    RecommenderCapabilities,
-    UnsupportedOperation,
 )
 from ._base import (
+    BaseRecommender,
     build_result,
+    make_capabilities,
     popularity_stats,
     rank_scores,
     resolve_candidate_items,
-    user_seen_items,
 )
 
 
-class GlobalMeanRecommender:
+class GlobalMeanRecommender(BaseRecommender):
     name = "global_mean"
     version = "1.0.0"
-    capabilities = RecommenderCapabilities(
-        requires_training=True,
-        supports_cold_start=True,
-        supports_rating_prediction=True,
-        supports_incremental_update=False,
-        supported_modes=frozenset(
-            {RecommendationMode.PERSONALIZED, RecommendationMode.TRENDING}
-        ),
-    )
+    capabilities = make_capabilities(supports_rating_prediction=True)
 
     def __init__(self) -> None:
+        super().__init__()
         self.global_mean = 0.0
-        self.known_items: tuple[Hashable, ...] = ()
-        self.seen_items: dict[Hashable, frozenset[Hashable]] = {}
         self.item_means: dict[Hashable, float] = {}
         self.counts: dict[Hashable, int] = {}
 
@@ -44,17 +33,16 @@ class GlobalMeanRecommender:
         data: Dataset,
         validation: Dataset | None = None,
     ) -> "GlobalMeanRecommender":
+        super().fit(data, validation)
         stats = popularity_stats(data)
         self.global_mean = stats.global_mean
         self.item_means = stats.means
         self.counts = dict(stats.counts)
         self.known_items = tuple(stats.counts)
-        self.seen_items = user_seen_items(data)
         return self
 
     def recommend(self, request: RecommendationRequest) -> RecommendationResult:
-        if request.mode not in self.capabilities.supported_modes:
-            raise UnsupportedOperation(f"global_mean does not support {request.mode.value}")
+        self._check_mode(request)
         candidates = resolve_candidate_items(request, self.known_items, self.seen_items)
         scores = {
             item_id: self.item_means.get(item_id, self.global_mean)

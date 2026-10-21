@@ -86,10 +86,6 @@ class IdMap:
         return len(self.idx_to_item)
 
     @property
-    def user_ids(self) -> tuple[Hashable, ...]:
-        return self.idx_to_user
-
-    @property
     def item_ids(self) -> tuple[Hashable, ...]:
         return self.idx_to_item
 

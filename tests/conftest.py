@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -60,3 +62,27 @@ def make_dataset(
 @pytest.fixture
 def tiny_dataset() -> Dataset:
     return make_dataset()
+
+
+def write_movielens_dir(
+    path: Path,
+    ratings_text: str,
+    item_rows: list[tuple[int, str, list[str]]],
+) -> None:
+    """Write a MovieLens directory with a u.data file and a u.item file."""
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "u.data").write_text(ratings_text, encoding="latin-1")
+    lines = [
+        "|".join(
+            [
+                str(item_id),
+                title,
+                "01-Jan-1995",
+                "",
+                "http://example.test",
+                *genres,
+            ]
+        )
+        for item_id, title, genres in item_rows
+    ]
+    (path / "u.item").write_text("\n".join(lines) + "\n", encoding="latin-1")

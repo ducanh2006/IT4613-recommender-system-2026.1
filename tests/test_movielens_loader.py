@@ -1,40 +1,20 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 
 from backend.app.recommender.loaders import MovieLensLoader
-
-
-def write_movielens(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    (path / "u.data").write_text(
-        "1\t10\t5\t100\n1\t11\t4\t101\n2\t10\t3\t102\n2\t11\t5\t103\n",
-        encoding="latin-1",
-    )
-    item_lines = []
-    for item_id, title in ((10, "Ten"), (11, "Eleven")):
-        genres = ["0"] * 19
-        genres[0] = "1"
-        genres[1] = "1"
-        item_lines.append(
-            "|".join(
-                [
-                    str(item_id),
-                    title,
-                    "01-Jan-1995",
-                    "",
-                    "http://example.test",
-                    *genres,
-                ]
-            )
-        )
-    (path / "u.item").write_text("\n".join(item_lines) + "\n", encoding="latin-1")
+from tests.conftest import write_movielens_dir
 
 
 def test_movielens_loader(tmp_path):
-    write_movielens(tmp_path)
+    genres = ["0"] * 19
+    genres[0] = "1"
+    genres[1] = "1"
+    write_movielens_dir(
+        tmp_path,
+        "1\t10\t5\t100\n1\t11\t4\t101\n2\t10\t3\t102\n2\t11\t5\t103\n",
+        [(10, "Ten", genres), (11, "Eleven", genres)],
+    )
     dataset = MovieLensLoader(tmp_path).load()
     assert dataset.n_ratings == 4
     assert dataset.n_users == 2

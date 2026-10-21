@@ -5,7 +5,17 @@ from typing import Hashable, Iterable, Mapping
 
 import numpy as np
 
-from ..contracts import Dataset, Recommendation, RecommendationRequest, RecommendationResult
+from ..contracts import (
+    Dataset,
+    Recommendation,
+    RecommendationMode,
+    RecommendationRequest,
+    RecommendationResult,
+    RecommenderCapabilities,
+    UnsupportedOperation,
+)
+
+POPULARITY_FALLBACK_M = 50.0
 
 
 @dataclass(frozen=True)
@@ -14,16 +24,32 @@ class RatingMatrix:
     user_ids: tuple[Hashable, ...]
     item_ids: tuple[Hashable, ...]
 
-    @property
-    def user_mask(self) -> np.ndarray:
-        return ~np.isnan(self.values)
-
 
 @dataclass(frozen=True)
 class PopularityStats:
     counts: Mapping[Hashable, int]
     means: Mapping[Hashable, float]
     global_mean: float
+
+
+def make_capabilities(
+    supports_rating_prediction: bool = False,
+    supported_modes: tuple[RecommendationMode, ...] = (
+        RecommendationMode.PERSONALIZED,
+        RecommendationMode.TRENDING,
+    ),
+    *,
+    requires_training: bool = True,
+    supports_cold_start: bool = True,
+    supports_incremental_update: bool = False,
+) -> RecommenderCapabilities:
+    return RecommenderCapabilities(
+        requires_training=requires_training,
+        supports_cold_start=supports_cold_start,
+        supports_rating_prediction=supports_rating_prediction,
+        supports_incremental_update=supports_incremental_update,
+        supported_modes=frozenset(supported_modes),
+    )
 
 
 def build_rating_matrix(dataset: Dataset) -> RatingMatrix:
@@ -50,11 +76,6 @@ def popularity_stats(dataset: Dataset) -> PopularityStats:
     )
 
 
-def user_seen_items(dataset: Dataset) -> dict[Hashable, frozenset[Hashable]]:
-    grouped = dataset.ratings.groupby("user_id", sort=False)["item_id"].apply(frozenset)
-    return {key: value for key, value in grouped.items()}
-
-
 def resolve_candidate_items(
     request: RecommendationRequest,
     known_items: Iterable[Hashable],
@@ -68,7 +89,7 @@ def resolve_candidate_items(
     excluded = set(request.exclude_item_ids)
     if request.user_id is not None and seen_items is not None:
         excluded.update(seen_items.get(request.user_id, frozenset()))
-    if request.mode.value == "similar" and request.item_id is not None:
+    if request.mode is RecommendationMode.SIMILAR and request.item_id is not None:
         excluded.add(request.item_id)
     return tuple(item for item in candidates if item not in excluded)
 
@@ -76,10 +97,8 @@ def resolve_candidate_items(
 def rank_scores(
     scores: Mapping[Hashable, float],
     request: RecommendationRequest,
-    top_k: int | None = None,
     tie_breakers: Mapping[Hashable, float] | None = None,
 ) -> list[tuple[Hashable, float]]:
-    limit = request.top_k if top_k is None else top_k
     filtered = [
         (item_id, float(score))
         for item_id, score in scores.items()
@@ -95,7 +114,7 @@ def rank_scores(
         )
     else:
         filtered.sort(key=lambda pair: (-pair[1], str(pair[0])))
-    return filtered[:limit]
+    return filtered[: request.top_k]
 
 
 def build_result(
@@ -105,7 +124,6 @@ def build_result(
     ranked: Iterable[tuple[Hashable, float]],
     reason: str | None = None,
     fallback_used: bool = False,
-    latency_ms: float | None = None,
 ) -> RecommendationResult:
     items = tuple(
         Recommendation(
@@ -122,24 +140,29 @@ def build_result(
         model_name=model_name,
         model_version=model_version,
         fallback_used=fallback_used,
-        latency_ms=latency_ms,
     )
 
 
 def item_popularity_scores(
     stats: PopularityStats,
-    fallback_m: float = 0.0,
+    fallback_m: float = POPULARITY_FALLBACK_M,
 ) -> dict[Hashable, float]:
+    """IMDB style weighted rating: item mean shrunk towards the global mean."""
     scores: dict[Hashable, float] = {}
     for item_id, count in stats.counts.items():
         mean = stats.means.get(item_id, stats.global_mean)
-        if fallback_m <= 0:
-            scores[item_id] = float(count)
-        else:
-            scores[item_id] = (count / (count + fallback_m)) * mean + (
-                fallback_m / (count + fallback_m)
-            ) * stats.global_mean
+        scores[item_id] = (count / (count + fallback_m)) * mean + (
+            fallback_m / (count + fallback_m)
+        ) * stats.global_mean
     return scores
+
+
+def candidate_scores(
+    scores: np.ndarray,
+    candidates: Iterable[Hashable],
+    item_index: Mapping[Hashable, int],
+) -> dict[Hashable, float]:
+    return {item_id: float(scores[item_index[item_id]]) for item_id in candidates}
 
 
 def min_max_normalize(values: np.ndarray) -> np.ndarray:
@@ -154,3 +177,61 @@ def min_max_normalize(values: np.ndarray) -> np.ndarray:
     result = (values - low) / (high - low)
     result[~finite] = 0.0
     return result
+
+
+class BaseRecommender:
+    """Shared plumbing for the recommender implementations."""
+
+    name = ""
+    version = ""
+    capabilities: RecommenderCapabilities
+
+    def __init__(self) -> None:
+        self.known_items: tuple[Hashable, ...] = ()
+        self.fallback_items: tuple[Hashable, ...] = ()
+        self.seen_items: dict[Hashable, frozenset[Hashable]] = {}
+        self.popularity_scores: dict[Hashable, float] = {}
+
+    def fit(
+        self,
+        data: Dataset,
+        validation: Dataset | None = None,
+    ) -> "BaseRecommender":
+        self.seen_items = data.user_items()
+        return self
+
+    def _fit_popularity(self, data: Dataset) -> None:
+        stats = popularity_stats(data)
+        self.popularity_scores = item_popularity_scores(stats)
+        self.fallback_items = tuple(stats.counts)
+
+    def _check_mode(self, request: RecommendationRequest) -> None:
+        if request.mode not in self.capabilities.supported_modes:
+            raise UnsupportedOperation(
+                f"{self.name} does not support {request.mode.value}"
+            )
+
+    def _popularity_fallback(
+        self,
+        request: RecommendationRequest,
+        reason: str = "popular_fallback",
+    ) -> RecommendationResult:
+        candidates = resolve_candidate_items(
+            request, self.fallback_items, self.seen_items
+        )
+        scores = {
+            item_id: self.popularity_scores.get(item_id, 0.0)
+            for item_id in candidates
+        }
+        ranked = rank_scores(scores, request, tie_breakers=self.popularity_scores)
+        return build_result(
+            self.name,
+            self.version,
+            request,
+            ranked,
+            reason=reason,
+            fallback_used=True,
+        )
+
+    def predict(self, user_id: Hashable, item_id: Hashable) -> float:
+        raise UnsupportedOperation(f"{self.name} does not support rating prediction")

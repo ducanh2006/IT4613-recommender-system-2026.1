@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Hashable, Iterator, Mapping
+from typing import Hashable, Iterator
 
 
 class RecommendationMode(str, Enum):
@@ -47,7 +47,6 @@ class Recommendation:
     score: float
     rank: int
     reason: str | None = None
-    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.rank < 1:
@@ -55,7 +54,6 @@ class Recommendation:
         if not math.isfinite(float(self.score)):
             raise ValueError("Recommendation.score must be finite")
         object.__setattr__(self, "score", float(self.score))
-        object.__setattr__(self, "metadata", dict(self.metadata))
 
 
 @dataclass(frozen=True)
@@ -65,7 +63,6 @@ class RecommendationResult:
     model_name: str
     model_version: str
     fallback_used: bool = False
-    latency_ms: float | None = None
 
     def __post_init__(self) -> None:
         items = tuple(self.items)
@@ -97,7 +94,3 @@ class RecommendationResult:
     @property
     def item_ids(self) -> tuple[Hashable, ...]:
         return tuple(item.item_id for item in self.items)
-
-    @property
-    def scores(self) -> tuple[float, ...]:
-        return tuple(item.score for item in self.items)

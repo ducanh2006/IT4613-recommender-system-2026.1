@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Sequence
+from typing import Sequence
 
 import numpy as np
 from scipy import stats
@@ -11,7 +11,6 @@ def bootstrap_ci(
     n_boot: int = 1000,
     confidence: float = 0.95,
     seed: int = 42,
-    statistic: Callable[[np.ndarray], float] = np.mean,
 ) -> tuple[float, float]:
     array = np.asarray(values, dtype=float)
     array = array[np.isfinite(array)]
@@ -19,7 +18,7 @@ def bootstrap_ci(
         return float("nan"), float("nan")
     rng = np.random.default_rng(seed)
     samples = rng.choice(array, size=(n_boot, len(array)), replace=True)
-    estimates = np.apply_along_axis(statistic, 1, samples)
+    estimates = samples.mean(axis=1)
     alpha = (1.0 - confidence) / 2.0
     low, high = np.quantile(estimates, [alpha, 1.0 - alpha])
     return float(low), float(high)

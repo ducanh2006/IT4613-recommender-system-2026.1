@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from typing import List, Optional
+from typing import Optional
 import sqlite3
 from ..database import get_db
 from ..recommender.popularity import PopularityRecommender

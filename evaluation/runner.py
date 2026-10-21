@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,7 @@ if __package__ in (None, ""):
 import numpy as np
 import pandas as pd
 
-from backend.app.recommender.contracts import Dataset, DatasetSplit
+from backend.app.recommender.contracts import Dataset, DatasetSplit, Recommender
 from backend.app.recommender.loaders import MovieLensLoader
 from backend.app.recommender.models import (
     ContentBasedRecommender,
@@ -45,18 +46,6 @@ from evaluation.stats import (
     wilcoxon_p,
 )
 
-MODEL_NAMES = (
-    "random",
-    "global_mean",
-    "most_popular",
-    "popularity",
-    "content_based",
-    "user_knn",
-    "item_knn",
-    "funk_svd",
-    "hybrid",
-)
-
 RANKING_METRICS = (
     "precision_at_k",
     "recall_at_k",
@@ -69,8 +58,8 @@ RATING_METRICS = ("rmse", "mae")
 GLOBAL_RANKING_METRICS = ("coverage", "diversity", "novelty", "empty_rate", "fallback_rate")
 
 
-def build_model(name: str, seed: int):
-    factories = {
+def model_factories(seed: int) -> dict[str, Callable[[], Recommender]]:
+    return {
         "random": lambda: RandomRecommender(seed=seed),
         "global_mean": GlobalMeanRecommender,
         "most_popular": MostPopularRecommender,
@@ -81,17 +70,21 @@ def build_model(name: str, seed: int):
         "funk_svd": lambda: FunkSVDRecommender(seed=seed),
         "hybrid": lambda: HybridRecommender(seed=seed),
     }
+
+
+def build_model(name: str, seed: int) -> Recommender:
+    factories = model_factories(seed)
     try:
         return factories[name]()
     except KeyError as exc:
         raise ValueError(f"Unknown model: {name}") from exc
 
 
-def parse_models(value: str) -> list[str]:
+def parse_models(value: str, model_names: Iterable[str]) -> list[str]:
     if value.strip().lower() == "all":
-        return list(MODEL_NAMES)
+        return list(model_names)
     names = [name.strip() for name in value.split(",") if name.strip()]
-    unknown = sorted(set(names).difference(MODEL_NAMES))
+    unknown = sorted(set(names).difference(model_names))
     if unknown:
         raise ValueError(f"Unknown models: {unknown}")
     return names
@@ -117,23 +110,26 @@ def summarize_result(
     task: str,
     result: EvaluationResult,
     fit_time_s: float,
+    n_boot: int,
+    seed: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     summary_rows: list[dict[str, Any]] = []
     metrics = dict(result.global_metrics)
+    macro_metrics = RANKING_METRICS if task == "ranking" else RATING_METRICS
+    for metric in macro_metrics:
+        values = result.per_user[metric].tolist() if metric in result.per_user else []
+        stats = summarize_values(values, n_boot=n_boot, seed=seed)
+        summary_rows.append(
+            {
+                "model": model_name,
+                "split": split_name,
+                "task": task,
+                "metric": metric,
+                "scope": "user_macro",
+                **stats,
+            }
+        )
     if task == "ranking":
-        for metric in RANKING_METRICS:
-            values = result.per_user[metric].tolist() if metric in result.per_user else []
-            stats = summarize_values(values)
-            summary_rows.append(
-                {
-                    "model": model_name,
-                    "split": split_name,
-                    "task": task,
-                    "metric": metric,
-                    "scope": "user_macro",
-                    **stats,
-                }
-            )
         for metric in GLOBAL_RANKING_METRICS:
             if metric in metrics:
                 summary_rows.append(
@@ -150,20 +146,6 @@ def summarize_result(
                         "n": float("nan"),
                     }
                 )
-    else:
-        for metric in RATING_METRICS:
-            values = result.per_user[metric].tolist() if metric in result.per_user else []
-            stats = summarize_values(values)
-            summary_rows.append(
-                {
-                    "model": model_name,
-                    "split": split_name,
-                    "task": task,
-                    "metric": metric,
-                    "scope": "user_macro",
-                    **stats,
-                }
-            )
     global_row = {
         "model": model_name,
         "split": split_name,
@@ -628,11 +610,10 @@ def run_benchmark(
         model.fit(split.train, split.validation)
         fit_time = time.perf_counter() - fit_start
 
-        rating_result = None
         if model.capabilities.supports_rating_prediction:
             rating_result = evaluate_rating(model, split.test, "test")
             rows, global_row = summarize_result(
-                model_name, "test", "rating", rating_result, fit_time
+                model_name, "test", "rating", rating_result, fit_time, n_boot, seed
             )
             summary_rows.extend(rows)
             global_rows.append(global_row)
@@ -658,7 +639,7 @@ def run_benchmark(
         ranking_result.global_metrics["diversity"] = diversity
         ranking_result.global_metrics["novelty"] = novelty_value
         rows, global_row = summarize_result(
-            model_name, "test", "ranking", ranking_result, fit_time
+            model_name, "test", "ranking", ranking_result, fit_time, n_boot, seed
         )
         summary_rows.extend(rows)
         global_rows.append(global_row)
@@ -686,7 +667,7 @@ def run_benchmark(
             cold_result.global_metrics["diversity"] = cold_diversity
             cold_result.global_metrics["novelty"] = cold_novelty
             rows, global_row = summarize_result(
-                model_name, "cold_start", "ranking", cold_result, fit_time
+                model_name, "cold_start", "ranking", cold_result, fit_time, n_boot, seed
             )
             summary_rows.extend(rows)
             global_rows.append(global_row)
@@ -801,7 +782,7 @@ def main() -> None:
         raise SystemExit("--k must be positive")
     if not 0.0 <= args.cold_user_ratio < 1.0:
         raise SystemExit("--cold-user-ratio must be between 0 and 1")
-    models = parse_models(args.models)
+    models = parse_models(args.models, model_factories(args.seed))
     out_dir = run_benchmark(
         data_dir=args.data_dir,
         out_dir=args.out,

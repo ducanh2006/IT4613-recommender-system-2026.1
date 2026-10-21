@@ -9,35 +9,24 @@ from ..contracts import (
     RecommendationMode,
     RecommendationRequest,
     RecommendationResult,
-    RecommenderCapabilities,
-    UnsupportedOperation,
 )
 from ._base import (
+    BaseRecommender,
     build_result,
-    item_popularity_scores,
+    make_capabilities,
     min_max_normalize,
-    popularity_stats,
     rank_scores,
     resolve_candidate_items,
-    user_seen_items,
 )
 from .content_based import ContentBasedRecommender
 from .funk_svd import FunkSVDRecommender
 from .item_knn import ItemKNNRecommender
 
 
-class HybridRecommender:
+class HybridRecommender(BaseRecommender):
     name = "hybrid"
     version = "1.0.0"
-    capabilities = RecommenderCapabilities(
-        requires_training=True,
-        supports_cold_start=True,
-        supports_rating_prediction=True,
-        supports_incremental_update=False,
-        supported_modes=frozenset(
-            {RecommendationMode.PERSONALIZED, RecommendationMode.TRENDING}
-        ),
-    )
+    capabilities = make_capabilities(supports_rating_prediction=True)
 
     def __init__(
         self,
@@ -46,6 +35,7 @@ class HybridRecommender:
         svd_weight: float = 0.4,
         seed: int = 42,
     ) -> None:
+        super().__init__()
         self.content_weight = float(content_weight)
         self.item_knn_weight = float(item_knn_weight)
         self.svd_weight = float(svd_weight)
@@ -53,29 +43,18 @@ class HybridRecommender:
         self.content = ContentBasedRecommender()
         self.item_knn = ItemKNNRecommender()
         self.svd = FunkSVDRecommender(seed=self.seed)
-        self.seen_items: dict[Hashable, frozenset[Hashable]] = {}
-        self.popularity_scores: dict[Hashable, float] = {}
-        self.known_items: tuple[Hashable, ...] = ()
-        self.item_index: dict[Hashable, int] = {}
-        self.user_index: dict[Hashable, int] = {}
 
     def fit(
         self,
         data: Dataset,
         validation: Dataset | None = None,
     ) -> "HybridRecommender":
+        super().fit(data, validation)
+        self._fit_popularity(data)
         self.content.fit(data)
         self.item_knn.fit(data)
         self.svd.fit(data, validation)
-        self.seen_items = user_seen_items(data)
         self.known_items = tuple(data.id_map.item_ids)
-        self.item_index = dict(data.id_map.item_to_idx)
-        self.user_index = dict(data.id_map.user_to_idx)
-        stats = popularity_stats(data)
-        self.popularity_scores = item_popularity_scores(
-            stats,
-            fallback_m=50.0,
-        )
         return self
 
     def _component_scores(
@@ -87,10 +66,9 @@ class HybridRecommender:
         item_scores = np.zeros(len(candidates), dtype=float)
         svd_scores = np.zeros(len(candidates), dtype=float)
 
-        content_user = user_id in self.content.seen_items
-        if content_user:
-            user_idx = self.content._user_index(user_id)
-            profile = self.content.user_profiles[user_idx]
+        content_user_idx = self.content.user_index.get(user_id)
+        if content_user_idx is not None:
+            profile = self.content.user_profiles[content_user_idx]
             if np.any(profile):
                 for idx, item_id in enumerate(candidates):
                     if item_id in self.content.item_index:
@@ -117,29 +95,8 @@ class HybridRecommender:
                     svd_scores[idx] = float(svd_array[item_idx])
         return content_scores, item_scores, svd_scores
 
-    def _popularity_fallback(
-        self,
-        request: RecommendationRequest,
-        reason: str = "popular_fallback",
-    ) -> RecommendationResult:
-        candidates = resolve_candidate_items(request, self.known_items, self.seen_items)
-        scores = {
-            item_id: self.popularity_scores.get(item_id, 0.0)
-            for item_id in candidates
-        }
-        ranked = rank_scores(scores, request, tie_breakers=self.popularity_scores)
-        return build_result(
-            self.name,
-            self.version,
-            request,
-            ranked,
-            reason=reason,
-            fallback_used=True,
-        )
-
     def recommend(self, request: RecommendationRequest) -> RecommendationResult:
-        if request.mode not in self.capabilities.supported_modes:
-            raise UnsupportedOperation(f"hybrid does not support {request.mode.value}")
+        self._check_mode(request)
         if request.mode is RecommendationMode.TRENDING or request.user_id not in self.seen_items:
             return self._popularity_fallback(request)
         candidates = resolve_candidate_items(request, self.known_items, self.seen_items)

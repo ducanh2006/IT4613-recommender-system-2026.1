@@ -1,4 +1,4 @@
-from .data import Dataset, DatasetSplit, IdMap, ItemFeatures
+from .data import RATING_COLUMNS, Dataset, DatasetSplit, IdMap, ItemFeatures
 from .recommendation import (
     Recommendation,
     RecommendationMode,
@@ -6,8 +6,6 @@ from .recommendation import (
     RecommendationResult,
 )
 from .behavior import (
-    ColdStartError,
-    InvalidRecommendationRequest,
     Recommender,
     RecommenderCapabilities,
     RecommenderError,
@@ -16,6 +14,7 @@ from .behavior import (
 )
 
 __all__ = [
+    "RATING_COLUMNS",
     "Dataset",
     "DatasetSplit",
     "IdMap",
@@ -24,8 +23,6 @@ __all__ = [
     "RecommendationMode",
     "RecommendationRequest",
     "RecommendationResult",
-    "ColdStartError",
-    "InvalidRecommendationRequest",
     "Recommender",
     "RecommenderCapabilities",
     "RecommenderError",

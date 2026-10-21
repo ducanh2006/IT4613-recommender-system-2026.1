@@ -19,15 +19,7 @@ class UnsupportedOperation(RecommenderError):
     pass
 
 
-class ColdStartError(RecommenderError):
-    pass
-
-
 class UnknownItemError(RecommenderError):
-    pass
-
-
-class InvalidRecommendationRequest(RecommenderError):
     pass
 
 

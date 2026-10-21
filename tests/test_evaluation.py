@@ -10,7 +10,7 @@ from evaluation.splits import build_split
 from tests.conftest import make_dataset
 
 
-def test_evaluate_ranking_and_rating(tiny_dataset):
+def test_evaluate_ranking_and_rating():
     split = build_split(
         make_dataset(20, 20, 15),
         "leave_one_out",

@@ -5,35 +5,18 @@ from pathlib import Path
 import pandas as pd
 
 from evaluation.runner import run_benchmark
-from tests.conftest import make_dataset
+from tests.conftest import make_dataset, write_movielens_dir
 
 
 def write_dataset(path: Path, dataset) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    dataset.ratings.loc[:, ["user_id", "item_id", "rating", "timestamp"]].to_csv(
-        path / "u.data",
-        sep="\t",
-        header=False,
-        index=False,
-        encoding="latin-1",
-    )
-    lines = []
+    ratings = dataset.ratings.loc[:, ["user_id", "item_id", "rating", "timestamp"]]
+    ratings_text = ratings.to_csv(sep="\t", header=False, index=False)
+    item_rows = []
     for item_id in dataset.id_map.item_ids:
         genres = ["0"] * 19
         genres[item_id % 19] = "1"
-        lines.append(
-            "|".join(
-                [
-                    str(item_id),
-                    f"Movie {item_id}",
-                    "01-Jan-1995",
-                    "",
-                    "http://example.test",
-                    *genres,
-                ]
-            )
-        )
-    (path / "u.item").write_text("\n".join(lines) + "\n", encoding="latin-1")
+        item_rows.append((int(item_id), f"Movie {item_id}", genres))
+    write_movielens_dir(path, ratings_text, item_rows)
 
 
 def test_runner_end_to_end(tmp_path):

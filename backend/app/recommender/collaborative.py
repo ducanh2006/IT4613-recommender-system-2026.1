@@ -1,5 +1,4 @@
 import sqlite3
-import numpy as np
 from typing import List, Dict, Any
 from .base import BaseRecommender
 from .popularity import PopularityRecommender
@@ -38,7 +37,7 @@ class CollaborativeRecommender(BaseRecommender):
             high_rated_movies = [r["movie_id"] for r in user_ratings]
 
         # 2. Xác định các thể loại mà user yêu thích nhất
-        fav_genres = cursor.execute(f"""
+        fav_genres = cursor.execute("""
             SELECT mg.genre_id, COUNT(*) as cnt, AVG(r.rating) as avg_r
             FROM ratings r
             JOIN movie_genres mg ON r.movie_id = mg.movie_id

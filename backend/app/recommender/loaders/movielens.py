@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ..contracts import Dataset, IdMap, ItemFeatures
+from ..contracts import RATING_COLUMNS, Dataset, IdMap, ItemFeatures
 
 GENRE_COLUMNS = (
     "unknown",
@@ -39,12 +39,10 @@ ITEM_COLUMNS = (
     "imdb_url",
     *GENRE_COLUMNS,
 )
-RATING_COLUMNS = ("user_id", "item_id", "rating", "timestamp")
 
 
 class MovieLensLoader:
     name = "ml-100k"
-    version = "1.0.0"
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -101,12 +99,10 @@ class MovieLensLoader:
             id_map=id_map,
             item_features=item_features,
             metadata={
-                "source": str(self.path),
                 "rating_min": 1.0,
                 "rating_max": 5.0,
                 "item_titles": titles,
                 "release_years": release_years,
-                "genre_columns": GENRE_COLUMNS,
             },
         )
         return dataset

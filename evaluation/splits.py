@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -249,12 +249,3 @@ def split_stats(split: DatasetSplit) -> dict[str, int | float | str]:
         stats["cold_start_ratings"] = 0
         stats["cold_start_users"] = 0
     return stats
-
-
-def iter_split_frames(split: DatasetSplit) -> Iterable[tuple[str, Dataset]]:
-    yield "train", split.train
-    if split.validation is not None:
-        yield "validation", split.validation
-    yield "test", split.test
-    if split.cold_start_test is not None:
-        yield "cold_start_test", split.cold_start_test
