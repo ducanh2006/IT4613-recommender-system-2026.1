@@ -28,9 +28,9 @@ git clone https://github.com/ducanh2006/IT4613-recommender-system-2026.1.git
 cd IT4613-recommender-system-2026.1
 ```
 
-Cài đặt thư viện Python cơ bản (bắt buộc trước khi khởi tạo database):
+Cài đặt thư viện Python cho toàn bộ dự án:
 ```bash
-pip install -r backend/requirements.txt
+pip install -r requirements.txt
 ```
 
 ---
@@ -56,11 +56,11 @@ pip install -r backend/requirements.txt
 
 ### 2.3. Đánh giá Mô hình & Benchmark (Track Offline)
 
-Vì dữ liệu lớn không commit lên Git, để chạy Benchmark và Unit Test bạn cần cài đặt thư viện dev và chuẩn bị tập MovieLens-100k:
+Vì dữ liệu lớn không commit lên Git, để chạy Benchmark và Unit Test bạn cần chuẩn bị tập MovieLens-100k:
 
-1. **Cài đặt thư viện phát triển (Dev dependencies):**
+1. **Cài đặt thư viện (nếu chưa cài ở bước 2.1):**
    ```bash
-   pip install -r requirements-dev.txt
+   pip install -r requirements.txt
    ```
 
 2. **Tải tập dữ liệu MovieLens-100k vào `data/ml-100k`:**
