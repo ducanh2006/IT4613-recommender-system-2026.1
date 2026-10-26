@@ -17,8 +17,8 @@ env/
 # Environment
 .env
 
-# Plans
-plans/
+# Docs
+docs/
 
 # Offline benchmark
 data/
