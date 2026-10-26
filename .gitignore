@@ -22,8 +22,7 @@ plans/
 
 # Offline benchmark
 data/
-results/*
-!results/latest/
+results/
 .pytest_cache/
 
 
