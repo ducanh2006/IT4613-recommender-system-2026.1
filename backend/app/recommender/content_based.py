@@ -1,86 +1,85 @@
 import sqlite3
-import numpy as np
 from typing import List, Dict, Any
+
+import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+
 from .base import BaseRecommender
+from .utils import fetch_movies_with_genres, build_movie_payload
+from .loader import get_similarity, get_popularity
+
 
 class ContentBasedRecommender(BaseRecommender):
     """
-    Thuật toán lọc dựa trên nội dung (Content-based Filtering)
-    Tính toán độ tương đồng Cosine Similarity giữa các phim dựa trên vector đặc trưng Thể loại (Genres).
-    Dùng cho tính năng: "Vì bạn đã xem/thích phim X" hoặc "Phim tương tự".
+    "Phim tương tự" / "Vì bạn đã xem phim X".
+
+    - Ưu tiên: item-item collaborative similarity (cosine + shrinkage) precompute
+      từ MovieLens-32m -> các phim demo được người dùng thực cùng đánh giá.
+    - Fallback: content-based theo thể loại (one-hot genre + cosine), như bản cũ.
     """
+
     def recommend(
-            self,
-            conn: sqlite3.Connection,
-            user_id: int = None,
-            movie_id: int = None,
-            top_k: int = 10
-        ) -> List[Dict[str, Any]]:
+        self,
+        conn: sqlite3.Connection,
+        user_id: int = None,
+        movie_id: int = None,
+        top_k: int = 10,
+    ) -> List[Dict[str, Any]]:
         if not movie_id:
             return []
 
+        movies = fetch_movies_with_genres(conn)
+        pop = get_popularity()
+
+        def _decorate(row, score):
+            if pop and row["id"] in pop:
+                row["rating_avg"] = pop[row["id"]].get("mean_rating") or 0.0
+                row["vote_count"] = pop[row["id"]].get("vote_count") or 0
+            return build_movie_payload(row, "similarity_score", round(float(score), 3))
+
+        # --- Nhánh chính: item-item similarity từ ML-32m ---
+        sim_mat = get_similarity()
+        if sim_mat is not None:
+            candidates = [
+                (row, sim_mat.get(movie_id, row["id"]))
+                for row in movies
+                if row["id"] != movie_id and sim_mat.get(movie_id, row["id"]) > 0.0
+            ]
+            if candidates:
+                results = [_decorate(row, score) for row, score in candidates]
+                results.sort(
+                    key=lambda x: (-x["similarity_score"], -x["rating_avg"], x["id"])
+                )
+                return results[:top_k]
+
+        # --- Fallback: content-based theo thể loại (giữ logic cũ) ---
         cursor = conn.cursor()
-        # 1. Lấy danh sách tất cả thể loại để xây dựng vector one-hot
         all_genres = [r[0] for r in cursor.execute("SELECT id FROM genres ORDER BY id;").fetchall()]
         genre_to_idx = {gid: idx for idx, gid in enumerate(all_genres)}
         num_genres = len(all_genres)
 
-        # 2. Lấy danh sách phim kèm thể loại
-        movies_query = cursor.execute("""
-            SELECT m.*, GROUP_CONCAT(mg.genre_id) AS genre_ids, GROUP_CONCAT(g.name, ', ') AS genre_names
-            FROM movies m
-            LEFT JOIN movie_genres mg ON m.id = mg.movie_id
-            LEFT JOIN genres g ON mg.genre_id = g.id
-            GROUP BY m.id
-        """).fetchall()
-
-        movie_rows = []
-        movie_vectors = []
-        target_idx = -1
-
-        for idx, row in enumerate(movies_query):
-            movie_rows.append(row)
+        vectors = []
+        target_vec = None
+        for row in movies:
             vec = np.zeros(num_genres)
-            if row["genre_ids"]:
-                gids = [int(x) for x in row["genre_ids"].split(",")]
-                for gid in gids:
-                    if gid in genre_to_idx:
-                        vec[genre_to_idx[gid]] = 1.0
-            movie_vectors.append(vec)
+            for gid in row.get("genre_ids") or []:
+                if gid in genre_to_idx:
+                    vec[genre_to_idx[gid]] = 1.0
+            vectors.append(vec)
             if row["id"] == movie_id:
-                target_idx = idx
+                target_vec = vec.reshape(1, -1)
 
-        if target_idx == -1:
+        if target_vec is None:
             return []
 
-        # 3. Tính độ đo Cosine Similarity
-        matrix = np.array(movie_vectors)
-        target_vec = matrix[target_idx].reshape(1, -1)
+        matrix = np.array(vectors)
         sim_scores = cosine_similarity(target_vec, matrix)[0]
 
-        # 4. Gom kết quả và sắp xếp (bỏ qua chính nó)
         results = []
-        for idx, score in enumerate(sim_scores):
-            if idx == target_idx:
+        for idx, row in enumerate(movies):
+            if row["id"] == movie_id:
                 continue
-            row = movie_rows[idx]
-            genres_list = row["genre_names"].split(", ") if row["genre_names"] else []
-            results.append({
-                "id": row["id"],
-                "title": row["title"],
-                "overview": row["overview"],
-                "release_year": row["release_year"],
-                "poster_url": row["poster_url"],
-                "backdrop_url": row["backdrop_url"],
-                "trailer_youtube_id": row["trailer_youtube_id"],
-                "duration_minutes": row["duration_minutes"],
-                "rating_avg": round(row["rating_avg"], 1),
-                "vote_count": row["vote_count"],
-                "genres": genres_list,
-                "similarity_score": round(float(score), 3)
-            })
+            results.append(_decorate(row, sim_scores[idx]))
 
-        # Sắp xếp giảm dần theo similarity_score rồi đến rating_avg
-        results.sort(key=lambda x: (x["similarity_score"], x["rating_avg"]), reverse=True)
+        results.sort(key=lambda x: (-x["similarity_score"], -x["rating_avg"], x["id"]))
         return results[:top_k]

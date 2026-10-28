@@ -1,28 +1,46 @@
 # Hệ Gợi Ý Phim (Movie Recommender System) — IT4613
 
-Dự án nghiên cứu và triển khai Hệ thống Gợi ý Phim theo kiến trúc **Dual-track** (Song song 2 luồng):
-- **Track Online (Ứng dụng Web):** Web app hoàn chỉnh (FastAPI + ReactJS + SQLite) phục vụ người dùng thực tế với 3 luồng gợi ý trực quan và xử lý mượt mà bài toán Cold-Start.
-- **Track Offline (Đánh giá Khoa học):** Khung benchmark chuẩn mực trên tập MovieLens-100k, đo đạc toàn diện các chỉ số Xếp hạng (Ranking) và Dự đoán điểm (Rating) kèm kiểm định thống kê.
+## Kiến trúc gợi ý (tóm tắt)
 
----
+Hệ thống dùng **MovieLens-32m** (32.000.204 rating, 200.948 user, 87.585 phim) làm
+"bộ não" gợi ý, nhưng UI vẫn hiển thị **20 phim demo** có poster/trailer.
 
-## 1. Giới thiệu về dự án
-
-### Bảng công nghệ chính
-
-| Thành phần | Công nghệ | Vai trò trong hệ thống |
+| Endpoint | Thuật toán | Nguồn tín hiệu |
 | :--- | :--- | :--- |
-| **Backend** | Python 3.10+, FastAPI, SQLite | Cung cấp RESTful API, quản lý dữ liệu người dùng & phim |
-| **Frontend** | ReactJS, Vite, Tailwind/CSS | Giao diện Web tương tác trực quan (xem phim, đánh giá, nhận gợi ý) |
-| **Core ML** | NumPy, Pandas, Scikit-learn, SciPy | Xử lý ma trận dữ liệu và các thuật toán gợi ý |
-| **Benchmark** | Pytest, Custom Evaluation Runner | Đo đạc chỉ số (NDCG, Precision, RMSE...), kiểm định Wilcoxon, Bootstrap |
+| `/api/recommendations/trending` | Popularity - IMDB Weighted Rating | ML-32m (vote_count/rating_avg thật) |
+| `/api/recommendations/for-you` | Item-based CF (cosine + shrinkage) lai content + popularity | ML-32m + rating của user |
+| `/api/recommendations/similar/{id}` | Item-item similarity; fallback genre cosine | ML-32m |
+
+- 20 phim demo được ánh xạ sang `movieId` của ML-32m trong
+  `backend/app/recommender/ml_mapping.py`.
+- ETL chạy **offline một lần**, sinh artifact nhỏ trong `backend/artifacts/`
+  (popularity + ma trận similarity 20×20). API nạp artifact vào RAM lúc khởi động.
+- Nếu chưa chạy ETL, app **vẫn chạy** (tự fallback về logic tính từ SQLite).
 
 ---
 
-## 2. Cách chạy và cài đặt dự án
+### 1. Khởi tạo Cơ sở dữ liệu SQLite
+Mở terminal tại thư mục gốc dự án:
+```bash
+python database/seed_data.py
+```
 
-### 2.1. Clone dự án & Cài đặt môi trường
-Mở terminal và clone mã nguồn về máy:
+---
+
+### 2. Precompute artifact từ MovieLens-32m (chạy 1 lần)
+Đảm bảo thư mục `ml-32m/` (chứa `ratings.csv`, `movies.csv`) nằm ở gốc dự án, sau đó:
+```bash
+python -m backend.etl.build_artifacts --backfill-db
+```
+- Đọc `ml-32m/ratings.csv` theo chunk (~1-2 phút), sinh `backend/artifacts/`.
+- `--backfill-db` ghi `vote_count`/`rating_avg` **thật** từ ML-32m vào `database/app.db`
+  để UI hiển thị số liệu thật.
+- **Thứ tự bắt buộc:** chạy bước 1 trước, rồi bước 2 (vì `seed_data.py` reset bảng movies).
+
+---
+
+### 3. Khởi chạy Backend (FastAPI)
+Cài đặt thư viện (nếu chưa cài):
 ```bash
 git clone https://github.com/ducanh2006/IT4613-recommender-system-2026.1.git
 cd IT4613-recommender-system-2026.1
@@ -32,93 +50,16 @@ Cài đặt thư viện Python cho toàn bộ dự án:
 ```bash
 pip install -r requirements.txt
 ```
+- **Backend API**: http://127.0.0.1:8000
 
 ---
 
-### 2.2. Khởi chạy Ứng dụng Web (Track Online)
-
-| Bước | Thao tác | Lệnh thực thi (Terminal) | Ghi chú |
-| :--- | :--- | :--- | :--- |
-| **1. Khởi tạo DB** | Nạp dữ liệu mẫu SQLite | `python database/seed_data.py` | Tạo `app.db` và các tài khoản demo (cần `bcrypt`) |
-| **2. Chạy Backend** | Chạy máy chủ FastAPI | `uvicorn backend.app.main:app --reload --port 8000` | API tài liệu: `http://127.0.0.1:8000/docs` |
-| **3. Chạy Frontend** | Cài thư viện & chạy Web | `cd frontend`<br>`npm install`<br>`npm run dev` | Giao diện Web: `http://localhost:5173` |
-
-#### Tài khoản Demo có sẵn trên Web:
-
-| Tài khoản | Mật khẩu | Đặc điểm sở thích | Mục đích Demo trên Web |
-| :--- | :--- | :--- | :--- |
-| `alice` | `123456` | Thích phim Hành Động, Marvel | Demo Gợi ý Cá nhân hóa (Action/Sci-Fi) |
-| `bob` | `123456` | Thích phim Hoạt hình, Anime | Demo Gợi ý Cá nhân hóa (Animation) |
-| `dave` | `123456` | Thích phim Khoa học Viễn tưởng | Demo Gợi ý Cá nhân hóa (Sci-Fi) |
-| `charlie` | `123456` | Chưa có đánh giá nào (0 ratings) | **Demo Xử lý Người dùng mới (Cold-Start)** |
-
----
-
-### 2.3. Đánh giá Mô hình & Benchmark (Track Offline)
-
-Vì dữ liệu lớn không commit lên Git, để chạy Benchmark và Unit Test bạn cần chuẩn bị tập MovieLens-100k:
-
-1. **Cài đặt thư viện (nếu chưa cài ở bước 2.1):**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Tải tập dữ liệu MovieLens-100k vào `data/ml-100k`:**
-   * Tải trực tiếp file zip chính thức từ [GroupLens ml-100k.zip](https://files.grouplens.org/datasets/movielens/ml-100k.zip) và giải nén vào thư mục `data/ml-100k`.
-   * *Hoặc chạy nhanh 1 dòng lệnh sau trong terminal để tự động tải & giải nén:*
-     ```bash
-     python -c "import urllib.request, zipfile, os; os.makedirs('data', exist_ok=True); urllib.request.urlretrieve('https://files.grouplens.org/datasets/movielens/ml-100k.zip', 'data/ml-100k.zip'); zipfile.ZipFile('data/ml-100k.zip').extractall('data/')"
-     ```
-
-3. **Chạy Kiểm thử & Benchmark:**
-
-   | Thao tác | Lệnh thực thi (Terminal) | Mục đích |
-   | :--- | :--- | :--- |
-   | **Kiểm thử tự động** | `pytest` | Chạy toàn bộ test suite kiểm tra contracts & thuật toán |
-   | **Chạy Benchmark** | `python -m evaluation.runner --data-dir data/ml-100k --out results/latest` | Chạy đánh giá toàn diện các model trên MovieLens |
-
-#### Tham số chính của bộ Benchmark (`evaluation.runner`):
-
-| Tham số | Mặc định | Ý nghĩa |
-| :--- | :--- | :--- |
-| `--protocol` | `temporal` | Giao thức chia tập: `temporal` (theo thời gian) hoặc `leave_one_out` |
-| `--models` | `all` | Danh sách model cần chạy (ví dụ: `funk_svd,item_knn,hybrid`) |
-| `--k` | `10` | Số lượng phim gợi ý trong Top-K |
-| `--cold-user-ratio` | `0.1` | Tỉ lệ người dùng giữ lại để mô phỏng đánh giá Cold-Start |
-| `--seed` | `42` | Random seed đảm bảo kết quả tất định (deterministic) |
-
----
-
-## 3. Kiến trúc dự án
-
-### 3.1. Cấu trúc thư mục (File Tree)
-
-```text
-IT4613-recommender-system-2026.1/
-├── backend/app/
-│   ├── api/                   # Router FastAPI (các endpoint cho Web UI gọi)
-│   ├── database/              # Khởi tạo kết nối SQLite (app.db)
-│   └── recommender/           # LÕI HỆ THỐNG GỢI Ý
-│       ├── base.py            # [Online Contract] Base class cho Web UI
-│       ├── popularity.py      # [Online] Xếp hạng thịnh hành (IMDB Weighted Rating)
-│       ├── collaborative.py   # [Online] Lọc cộng tác cá nhân hóa
-│       ├── content_based.py   # [Online] Lọc theo đặc trưng thể loại phim
-│       ├── contracts/         # [Offline Contracts] Hợp đồng dữ liệu & hành vi
-│       │   ├── data.py        # Contract Dataset, IdMap, ItemFeatures
-│       │   ├── behavior.py    # Contract Recommender, Capabilities
-│       │   └── recommendation.py # Contract Request & Result
-│       └── models/            # [Offline Models] Các thuật toán benchmark
-│           ├── _base.py       # Lớp cha BaseRecommender & toolkit dùng chung
-│           ├── funk_svd.py    # Phân rã ma trận FunkSVD (AI / Matrix Factorization)
-│           ├── item_knn.py    # Item-based Collaborative Filtering
-│           ├── user_knn.py    # User-based Collaborative Filtering
-│           ├── hybrid.py      # Mô hình lai kết hợp Content + Collaborative
-│           └── random.py      # Thuật toán ngẫu nhiên (Baseline non-AI)
-├── frontend/                  # Mã nguồn giao diện Web ReactJS
-├── evaluation/                # Bộ công cụ Benchmark (runner, metrics, splits, stats)
-├── database/                  # Schema SQL (database.sql) và script nạp dữ liệu (seed_data.py)
-├── tests/                     # Unit test tự động kiểm tra contracts & thuật toán
-└── data/                      # Dữ liệu MovieLens thô (được cấu hình .gitignore)
+### 4. Khởi chạy Frontend (ReactJS)
+Mở một cửa sổ terminal mới:
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
 ### 3.2. Bốn Interface / Contract quan trọng
@@ -148,11 +89,16 @@ Cơ chế thẻ căn cước **`capabilities: RecommenderCapabilities`** cho ph�
 
 ---
 
-## 4. Giải thích thuật toán đã cài đặt và triển khai thực tế
+### 5. Kiểm chứng tầng gợi ý (tùy chọn)
+```bash
+python scripts/check_recommenders.py
+```
+Kiểm tra artifact, popularity, tính cá nhân hóa, cold-start, determinism và fallback.
 
-### 4.1. Bảng tổng hợp thuật toán trên Giao diện Web (Track Online)
+---
 
-| Hàng hiển thị trên Web | Thuật toán cốt lõi | Công thức / Nguyên lý | Mục đích & Trải nghiệm người dùng |
+### 6. Tài khoản Demo có sẵn
+| Tài khoản (Username) | Mật khẩu | Đặc điểm sở thích | Mục đích Demo |
 | :--- | :--- | :--- | :--- |
 | **Hàng 1: Phim thịnh hành**<br>*(Trending Movies)* | **IMDB Weighted Rating** ([popularity.py](backend/app/recommender/popularity.py)) | $WR = \frac{v}{v+m} \cdot R + \frac{m}{v+m} \cdot C$<br>($v$: số lượt vote, $m$: ngưỡng tối thiểu, $R$: điểm TB phim, $C$: điểm TB toàn sàn) | Gợi ý các bộ phim chất lượng được đông đảo khán giả đón nhận; không bị thiên lệch bởi phim chỉ có 1-2 đánh giá 5 sao. |
 | **Hàng 2: Gợi ý cho bạn**<br>*(Personalized Movies)* | **Collaborative Filtering** ([collaborative.py](backend/app/recommender/collaborative.py)) | Phân tích lịch sử đánh giá của user; tìm các phim tương tự với phim user từng thích điểm cao ($\ge 4.0$). | Cá nhân hóa theo gu riêng của từng tài khoản (`alice`: Marvel, `bob`: Anime...). |

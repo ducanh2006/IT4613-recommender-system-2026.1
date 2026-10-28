@@ -9,7 +9,7 @@ export default function MovieCard({ movie, onSelectMovie }) {
       <div className="card-details">
         <div className="card-title" title={movie.title}>{movie.title}</div>
         <div className="card-meta">
-          <span>⭐ {movie.rating_avg}</span>
+          <span>{movie.vote_count > 0 ? `⭐ ${movie.rating_avg}` : "Chưa có đánh giá"}</span>
           <span>{movie.release_year}</span>
         </div>
       </div>
