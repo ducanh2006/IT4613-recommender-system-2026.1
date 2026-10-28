@@ -21,6 +21,12 @@ env/
 # Environment
 .env
 
-# Cấu hình editor theo máy (VS Code)
-.vscode/
+# Docs
+docs/
+
+# Offline benchmark
+data/
+results/
+.pytest_cache/
+
 
